@@ -1,0 +1,142 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orgMembers OrgMember[]
+  auditLogs  AuditLog[]
+}
+
+model Organization {
+  id        String     @id @default(cuid())
+  name      String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  members     OrgMember[]
+  merchants   Merchant[]
+  disputes    Dispute[]
+  settings    Setting?
+  auditLogs   AuditLog[]
+}
+
+model OrgMember {
+  id        String   @id @default(cuid())
+  userId    String
+  orgId     String
+  role      String   // 'owner' | 'admin' | 'member'
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+  org  Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([userId, orgId])
+}
+
+model Merchant {
+  id               String        @id @default(cuid())
+  orgId            String
+  name             String
+  stripeAccountId  String?       @unique
+  createdAt        DateTime      @default(now())
+
+  org      Organization @relation(fields: [orgId], references: [id])
+  disputes Dispute[]
+
+  @@index([orgId])
+}
+
+model Dispute {
+  id              String   @id @default(cuid())
+  orgId           String
+  merchantId      String?
+  stripeDisputeId String?  @unique
+  reason          String?
+  amount          Int?
+  currency        String?
+  dueBy           DateTime?
+  status          String?  // 'needs_response' | 'under_review' | 'won' | 'lost' | ...
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  org       Organization @relation(fields: [orgId], references: [id])
+  merchant  Merchant?    @relation(fields: [merchantId], references: [id])
+  evidence  EvidenceItem[]
+  events    WebhookEvent[]
+
+  @@index([orgId])
+  @@index([merchantId])
+  @@unique([orgId, stripeDisputeId]) // requirement: (org_id, stripe_dispute_id) unique
+}
+
+model EvidenceItem {
+  id         String   @id @default(cuid())
+  disputeId  String
+  type       String   // 'transaction_summary' | 'fulfillment' | 'policy' | 'comms' | etc.
+  source     String   // 'stripe' | 'merchant'
+  title      String?
+  url        String?  // S3/R2 link
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  dispute Dispute @relation(fields: [disputeId], references: [id])
+
+  @@index([disputeId])
+}
+
+model WebhookEvent {
+  id         String   @id @default(cuid())
+  eventId    String   @unique   // requirement: event_id unique
+  type       String
+  payload    Json
+  status     String   // 'ok' | 'error'
+  createdAt  DateTime @default(now())
+  disputeId  String?
+
+  dispute Dispute? @relation(fields: [disputeId], references: [id])
+
+  @@index([disputeId])
+}
+
+model Setting {
+  id          String   @id @default(cuid())
+  orgId       String   @unique
+  notifyEmail String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  orgId     String
+  userId    String?
+  action    String   // 'login' | 'upload:add' | 'upload:delete' | ...
+  targetId  String?
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  org  Organization @relation(fields: [orgId], references: [id])
+  user User?        @relation(fields: [userId], references: [id])
+
+  @@index([orgId])
+  @@index([userId])
+}
